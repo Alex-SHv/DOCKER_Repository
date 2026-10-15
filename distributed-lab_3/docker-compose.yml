@@ -1,0 +1,86 @@
+x-mariadb: &mariadb
+  image: mariadb:11.4
+  restart: unless-stopped
+  networks: [app-net]
+  environment: &db-env
+    MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_pass}
+    MARIADB_DATABASE: logs
+    MARIADB_USER: app
+    MARIADB_PASSWORD: ${DB_PASSWORD:-app_pass}
+  healthcheck:
+    test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 10s
+
+x-server: &server
+  build:
+    context: ./server
+  restart: unless-stopped
+  networks: [app-net]
+  environment: &server-env
+    DB_NAME: logs
+    DB_USER: app
+    DB_PASSWORD: ${DB_PASSWORD:-app_pass}
+
+services:
+  # --- Бази даних для логів (по одній на сервер) ---
+  db-1:
+    <<: *mariadb
+    volumes: [db1-data:/var/lib/mysql]
+
+  db-2:
+    <<: *mariadb
+    volumes: [db2-data:/var/lib/mysql]
+
+  db-3:
+    <<: *mariadb
+    volumes: [db3-data:/var/lib/mysql]
+
+  # --- Backend-сервери ---
+  server-1:
+    <<: *server
+    environment:
+      <<: *server-env
+      INSTANCE_ID: server-1
+      DB_HOST: db-1
+    depends_on:
+      db-1: {condition: service_healthy}
+
+  server-2:
+    <<: *server
+    environment:
+      <<: *server-env
+      INSTANCE_ID: server-2
+      DB_HOST: db-2
+    depends_on:
+      db-2: {condition: service_healthy}
+
+  server-3:
+    <<: *server
+    environment:
+      <<: *server-env
+      INSTANCE_ID: server-3
+      DB_HOST: db-3
+    depends_on:
+      db-3: {condition: service_healthy}
+
+  # --- Балансувальник (єдина зовнішня точка входу) ---
+  balancer:
+    build:
+      context: ./balancer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks: [app-net]
+    depends_on: [server-1, server-2, server-3]
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  db1-data:
+  db2-data:
+  db3-data:
