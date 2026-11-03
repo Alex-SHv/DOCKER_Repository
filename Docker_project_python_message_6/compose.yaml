@@ -1,0 +1,68 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"          # вебпанель: http://localhost:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # Program 1: Support Client (запускається вручну)
+  client:
+    build: ./producer
+    profiles: ["client"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      QUEUE_NAME: support_requests
+
+  # Program 2: Support Consumer, екземпляр 1
+  consumer-1:
+    build: ./consumer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      QUEUE_NAME: support_requests
+      PREFETCH_COUNT: 1
+      WORKER_NAME: Worker-1
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  # Program 2: Support Consumer, екземпляр 2
+  consumer-2:
+    build: ./consumer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-guest}
+      QUEUE_NAME: support_requests
+      PREFETCH_COUNT: 1
+      WORKER_NAME: Worker-2
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
