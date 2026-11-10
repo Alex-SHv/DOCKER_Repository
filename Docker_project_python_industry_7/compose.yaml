@@ -1,0 +1,71 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-admin}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS:-admin}"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  producer:
+    build: ./producer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: "${RABBITMQ_USER:-admin}"
+      RABBITMQ_PASS: "${RABBITMQ_PASS:-admin}"
+      EXCHANGE: factory
+      SEND_INTERVAL: "1"
+      SENSORS: "${SENSORS:-TEMP-01,PRESS-01,VIB-01}"
+      MESSAGE_COUNT: "${MESSAGE_COUNT:-0}"
+    restart: on-failure
+
+  worker:
+    build: ./worker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: "${RABBITMQ_USER:-admin}"
+      RABBITMQ_PASS: "${RABBITMQ_PASS:-admin}"
+      EXCHANGE: factory
+      PREFETCH_COUNT: "1"
+      PROCESS_DELAY: "${PROCESS_DELAY:-0}"
+      FAILURE_RATE: "${FAILURE_RATE:-0}"
+      MAX_ATTEMPTS: "3"
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  alert-handler:
+    build: ./alert_handler
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: "${RABBITMQ_USER:-admin}"
+      RABBITMQ_PASS: "${RABBITMQ_PASS:-admin}"
+      EXCHANGE: factory
+      ALERT_FILE: /data/alerts.log
+    volumes:
+      - ./data:/data
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
